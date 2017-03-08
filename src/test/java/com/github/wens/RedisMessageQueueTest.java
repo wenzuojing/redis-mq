@@ -1,7 +1,7 @@
 package com.github.wens;
 
-import com.github.mq.MessageHandler;
-import com.github.mq.RedisMessageQueue;
+import com.github.wens.mq.MessageHandler;
+import com.github.wens.mq.RedisMessageQueue;
 import junit.framework.Assert;
 import org.junit.Test;
 import redis.clients.jedis.JedisPool;

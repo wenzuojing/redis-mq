@@ -1,4 +1,4 @@
-package com.github.mq;
+package com.github.wens.mq;
 
 import com.esotericsoftware.kryo.Kryo;
 import com.esotericsoftware.kryo.io.Input;
