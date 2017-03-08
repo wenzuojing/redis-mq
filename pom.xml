@@ -6,7 +6,7 @@
 
     <groupId>com.github.wens</groupId>
     <artifactId>redis-mq</artifactId>
-    <version>1.0.0</version>
+    <version>1.0.1</version>
 
     <properties>
         <jedis.version>2.9.0</jedis.version>

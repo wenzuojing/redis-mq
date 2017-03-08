@@ -1,4 +1,4 @@
-package com.github.wens;
+package com.github.mq;
 
 import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisPool;

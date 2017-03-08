@@ -1,4 +1,4 @@
-package com.github.wens;
+package com.github.mq;
 
 /**
  * Created by wens on 2017/3/7.

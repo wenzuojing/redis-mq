@@ -1,5 +1,6 @@
 package com.github.wens;
 
+import com.github.mq.Serializers;
 import org.junit.Assert;
 import org.junit.Test;
 
