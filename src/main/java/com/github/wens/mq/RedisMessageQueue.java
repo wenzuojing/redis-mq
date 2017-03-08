@@ -1,5 +1,7 @@
 package com.github.wens.mq;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisPool;
 import redis.clients.jedis.JedisPubSub;
@@ -12,6 +14,8 @@ import java.util.concurrent.*;
  * Created by wens on 2017/3/7.
  */
 public class RedisMessageQueue implements Runnable {
+
+    private static Logger log = LoggerFactory.getLogger(RedisMessageQueue.class) ;
 
     private static String TOPIC_PREFIX = "TOPIC_%s" ;
     private static String EMPTY = "" ;
@@ -28,11 +32,11 @@ public class RedisMessageQueue implements Runnable {
         this.jedisPool = jedisPool;
     }
 
-    public <T> void publish(String topic , T message ){
+    public <T> void publish(String topic , byte[] data){
         Jedis jedis = jedisPool.getResource();
         try{
             Pipeline pipelined = jedis.pipelined();
-            pipelined.rpush(String.format(TOPIC_PREFIX, topic ).getBytes(), Serializers.encode(message)) ;
+            pipelined.rpush(String.format(TOPIC_PREFIX, topic ).getBytes(), data ) ;
             pipelined.publish("_queue_",topic );
             pipelined.sync();
         }finally {
@@ -148,7 +152,7 @@ public class RedisMessageQueue implements Runnable {
                     if(data == null ){
                         break;
                     }else{
-                        executeHandler(Serializers.decode(data));
+                        executeHandler(data);
                     }
 
 
@@ -166,9 +170,14 @@ public class RedisMessageQueue implements Runnable {
 
         }
 
-        private void executeHandler(Object message ) {
+        private void executeHandler(byte[] data ) {
             for(MessageHandler handler : handlers ){
-                handler.onMessage(message);
+                try{
+                    handler.onMessage(data);
+                }catch (Exception e){
+                    log.error("Execute handler fail :\n {} " , e );
+                }
+
             }
         }
 
