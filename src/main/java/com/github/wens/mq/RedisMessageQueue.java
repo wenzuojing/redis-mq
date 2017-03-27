@@ -80,21 +80,31 @@ public class RedisMessageQueue implements Runnable {
             pullMessageWorker.stop();
         }
         pullMessageWorkers.clear();
+        jedisPool.close();
     }
 
 
     public void run() {
 
         while (isStart){
-            Jedis jedis = jedisPool.getResource();
-            TopicListener topicListener = new TopicListener();
-            try{
-                jedis.subscribe( topicListener  , "_queue_" );
-            }finally {
-                if(jedis != null ){
-                    jedis.close();
-                }
 
+            try{
+                Jedis jedis = jedisPool.getResource();
+                TopicListener topicListener = new TopicListener();
+                try{
+                    jedis.subscribe( topicListener  , "_queue_" );
+                }finally {
+                    if(jedis != null ){
+                        jedis.close();
+                    }
+                }
+            }catch (Exception e){
+                log.error("Redis has some error : \n {}" , e );
+                try {
+                    Thread.sleep(500);
+                } catch (InterruptedException e1) {
+                    Thread.currentThread().interrupt();
+                }
             }
         }
     }
@@ -160,7 +170,7 @@ public class RedisMessageQueue implements Runnable {
 
                 synchronized (this){
                     try {
-                        this.wait();
+                        this.wait(20000);
                     } catch (InterruptedException e) {
                         Thread.currentThread().interrupt();
                     }

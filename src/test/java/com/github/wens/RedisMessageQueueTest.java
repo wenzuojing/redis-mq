@@ -27,8 +27,8 @@ public class RedisMessageQueueTest {
             RedisMessageQueue redisMessageQueue = new RedisMessageQueue(jedisPool);
             redisMessageQueue.start();
             redisMessageQueue.consume("test1", new MessageHandler() {
-                public void onMessage(Object message) {
-                    System.out.println(message);
+                public void onMessage(byte[] message) {
+                    System.out.println(new String( message) );
                     count.addAndGet(1);
                 }
             });
@@ -50,7 +50,7 @@ public class RedisMessageQueueTest {
                         e.printStackTrace();
                     }
                     for(int j = 0 ; j < 10000 ; j++ ){
-                        redisMessageQueue.publish("test1" , "HI" + j  );
+                        redisMessageQueue.publish("test1" , ("HI" + j).getBytes()  );
                     }
 
 
@@ -68,6 +68,28 @@ public class RedisMessageQueueTest {
         Assert.assertEquals(50000l,count.get() );
 
 
+    }
+
+    @Test
+    public void test_public(){
+        JedisPool jedisPool = new JedisPool("localhost" ,6379 ) ;
+        RedisMessageQueue redisMessageQueue = new RedisMessageQueue(jedisPool);
+        redisMessageQueue.publish("test1" , ("HI").getBytes()  );
+
+    }
+
+    @Test
+    public void test_consume() throws InterruptedException {
+        JedisPool jedisPool = new JedisPool("localhost" ,6379 ) ;
+        RedisMessageQueue redisMessageQueue = new RedisMessageQueue(jedisPool);
+        redisMessageQueue.start();
+        redisMessageQueue.consume("test1", new MessageHandler() {
+            public void onMessage(byte[] message) {
+                System.out.println(new String( message) );
+            }
+        });
+
+        Thread.sleep(Long.MAX_VALUE);
     }
 
 
