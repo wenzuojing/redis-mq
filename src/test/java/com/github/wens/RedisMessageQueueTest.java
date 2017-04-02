@@ -4,8 +4,11 @@ import com.github.wens.mq.MessageHandler;
 import com.github.wens.mq.RedisMessageQueue;
 import junit.framework.Assert;
 import org.junit.Test;
+import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisPool;
 
+import java.util.Arrays;
+import java.util.List;
 import java.util.concurrent.BrokenBarrierException;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CyclicBarrier;
@@ -92,6 +95,32 @@ public class RedisMessageQueueTest {
         Thread.sleep(Long.MAX_VALUE);
     }
 
+    @Test
+    public void test_consume2() throws InterruptedException {
+        JedisPool jedisPool = new JedisPool("localhost" ,6379 ) ;
+        RedisMessageQueue redisMessageQueue = new RedisMessageQueue(jedisPool);
+        redisMessageQueue.start();
+        redisMessageQueue.consume("test1" ,"group1", new MessageHandler() {
+            public void onMessage(byte[] message) {
+                System.out.println(new String( message) );
+            }
+        });
+
+        Thread.sleep(Long.MAX_VALUE);
+    }
+    @Test
+    public void test_consume3() throws InterruptedException {
+        JedisPool jedisPool = new JedisPool("localhost" ,6379 ) ;
+        RedisMessageQueue redisMessageQueue = new RedisMessageQueue(jedisPool);
+        redisMessageQueue.start();
+        redisMessageQueue.consume("test1" ,"group2", new MessageHandler() {
+            public void onMessage(byte[] message) {
+                System.out.println(new String( message) );
+            }
+        });
+
+        Thread.sleep(Long.MAX_VALUE);
+    }
 
 
 

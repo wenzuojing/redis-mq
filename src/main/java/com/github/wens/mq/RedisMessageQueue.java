@@ -7,6 +7,7 @@ import redis.clients.jedis.JedisPool;
 import redis.clients.jedis.JedisPubSub;
 import redis.clients.jedis.Pipeline;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.*;
 
@@ -18,13 +19,12 @@ public class RedisMessageQueue implements Runnable {
     private static Logger log = LoggerFactory.getLogger(RedisMessageQueue.class) ;
 
     private static String TOPIC_PREFIX = "TOPIC_%s" ;
-    private static String EMPTY = "" ;
 
     private volatile boolean isStart = false ;
 
     private JedisPool jedisPool ;
 
-    private ConcurrentHashMap<String,PullMessageWorker> pullMessageWorkers = new ConcurrentHashMap<String,PullMessageWorker>() ;
+    private ConcurrentHashMap<String,ConcurrentHashMap<String,PullMessageWorker>> pullMessageWorkers = new ConcurrentHashMap<String,ConcurrentHashMap<String,PullMessageWorker>>() ;
 
 
 
@@ -35,27 +35,54 @@ public class RedisMessageQueue implements Runnable {
     public <T> void publish(String topic , byte[] data){
         Jedis jedis = jedisPool.getResource();
         try{
-            Pipeline pipelined = jedis.pipelined();
-            pipelined.rpush(String.format(TOPIC_PREFIX, topic ).getBytes(), data ) ;
-            pipelined.publish("_queue_",topic );
-            pipelined.sync();
+            String script =
+                    "local keys=redis.call(\"SMEMBERS\", KEYS[1]);\n" +
+                    "if(keys and (table.maxn(keys) > 0)) then\n" +
+                    "    for index, key in ipairs(keys) do\n" +
+                    "        redis.call(\"RPUSH\", key , ARGV[1]);\n" +
+                    "    end\n" +
+                    "    redis.call(\"PUBLISH\", KEYS[2] , ARGV[2]);\n" +
+                    "end\n" +
+                    "return true ;" ;
+
+            jedis.eval(script.getBytes(),
+                    Arrays.asList(String.format("_group_:%s" , topic).getBytes() , String.format("_notify_",topic).getBytes()),
+                    Arrays.asList(data,topic.getBytes()));
+
         }finally {
             if(jedis != null ){
                 jedis.close();
             }
         }
+    }
+
+    public void consume( String topic  , MessageHandler messageHandler ){
+        this.consume(topic,"default" ,messageHandler);
+    }
+
+    public void consume( String topic , String group , MessageHandler messageHandler ){
+        ConcurrentHashMap<String,PullMessageWorker> groupPullMessageWorkerMap  = pullMessageWorkers.get(topic);
+        if(groupPullMessageWorkerMap == null ){
+            groupPullMessageWorkerMap = new ConcurrentHashMap<String, PullMessageWorker>();
+            ConcurrentHashMap<String, PullMessageWorker> oldGroupPullMessageWorkerMap = pullMessageWorkers.putIfAbsent(topic, groupPullMessageWorkerMap);
+            if(oldGroupPullMessageWorkerMap != null ){
+                groupPullMessageWorkerMap = oldGroupPullMessageWorkerMap ;
+            }
+            regPullMessageWorker(topic, group, messageHandler, groupPullMessageWorkerMap);
+        }else{
+            regPullMessageWorker(topic, group, messageHandler, groupPullMessageWorkerMap);
+        }
 
     }
 
-    public void consume( String topic , MessageHandler messageHandler ){
-        PullMessageWorker pullMessageWorker  = pullMessageWorkers.get(topic);
+    private void regPullMessageWorker(String topic, String group, MessageHandler messageHandler, ConcurrentHashMap<String, PullMessageWorker> groupPullMessageWorkerMap) {
+        PullMessageWorker pullMessageWorker = groupPullMessageWorkerMap.get(group);
         if(pullMessageWorker == null ){
-            PullMessageWorker newPullMessageWorker = new PullMessageWorker(topic);
-            PullMessageWorker old = pullMessageWorkers.putIfAbsent(topic, newPullMessageWorker );
-            if(old != null ){
-                pullMessageWorker = old ;
+            pullMessageWorker = new PullMessageWorker(topic , group );
+            PullMessageWorker oldPullMessageWorker = groupPullMessageWorkerMap.putIfAbsent(topic, pullMessageWorker );
+            if(oldPullMessageWorker != null ){
+                pullMessageWorker = oldPullMessageWorker ;
             }else{
-                pullMessageWorker = newPullMessageWorker ;
                 pullMessageWorker.start();
             }
         }
@@ -74,10 +101,11 @@ public class RedisMessageQueue implements Runnable {
     }
 
     public void close(){
-
         isStart = false ;
-        for(PullMessageWorker pullMessageWorker :pullMessageWorkers.values() ){
-            pullMessageWorker.stop();
+        for(ConcurrentHashMap<String,PullMessageWorker> groupPullMessageWorkerMap : pullMessageWorkers.values() ){
+            for(PullMessageWorker pullMessageWorker : groupPullMessageWorkerMap.values() ){
+                pullMessageWorker.stop();
+            }
         }
         pullMessageWorkers.clear();
         jedisPool.close();
@@ -92,7 +120,7 @@ public class RedisMessageQueue implements Runnable {
                 Jedis jedis = jedisPool.getResource();
                 TopicListener topicListener = new TopicListener();
                 try{
-                    jedis.subscribe( topicListener  , "_queue_" );
+                    jedis.subscribe( topicListener  , "_notify_" );
                 }finally {
                     if(jedis != null ){
                         jedis.close();
@@ -114,12 +142,13 @@ public class RedisMessageQueue implements Runnable {
 
         @Override
         public void onMessage(String channel, String message) {
-            PullMessageWorker pullMessageWorker = pullMessageWorkers.get(message);
-            if(pullMessageWorker != null ){
-                synchronized (pullMessageWorker){
-                    pullMessageWorker.notify();
+            ConcurrentHashMap<String,PullMessageWorker> groupPullMessageWorkerMap = pullMessageWorkers.get(message);
+            if(groupPullMessageWorkerMap != null ){
+                for(PullMessageWorker pullMessageWorker : groupPullMessageWorkerMap.values() ){
+                    synchronized (pullMessageWorker){
+                        pullMessageWorker.notify();
+                    }
                 }
-
             }
         }
 
@@ -129,13 +158,28 @@ public class RedisMessageQueue implements Runnable {
 
         private String topic ;
 
+        private String group ;
+
         private volatile boolean stopped = false ;
 
         private List<MessageHandler> handlers ;
 
-        public PullMessageWorker(String topic) {
+        public PullMessageWorker(String topic , String group) {
             this.topic = topic ;
+            this.group = group ;
             handlers = new CopyOnWriteArrayList<MessageHandler>();
+            regGroup();
+        }
+
+        private void regGroup() {
+            Jedis jedis = jedisPool.getResource();
+            try{
+                jedis.sadd(String.format("_group_:%s",topic ), String.format("%s:%s",topic,group ));
+            }finally {
+                if(jedis != null ){
+                    jedis.close();
+                }
+            }
         }
 
         public void addHandler(MessageHandler messageHandler ){
@@ -152,7 +196,7 @@ public class RedisMessageQueue implements Runnable {
 
                     byte[] data = null ;
                     try{
-                        data = jedis.lpop(String.format(TOPIC_PREFIX, topic ).getBytes());
+                        data = jedis.lpop(String.format("%s:%s",topic,group ).getBytes());
                     }finally {
                         if(jedis != null ){
                             jedis.close();
@@ -164,8 +208,6 @@ public class RedisMessageQueue implements Runnable {
                     }else{
                         executeHandler(data);
                     }
-
-
                 }
 
                 synchronized (this){
@@ -175,9 +217,7 @@ public class RedisMessageQueue implements Runnable {
                         Thread.currentThread().interrupt();
                     }
                 }
-
             }
-
         }
 
         private void executeHandler(byte[] data ) {
