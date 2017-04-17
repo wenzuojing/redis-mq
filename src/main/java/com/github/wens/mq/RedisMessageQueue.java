@@ -175,6 +175,8 @@ public class RedisMessageQueue implements Runnable {
             Jedis jedis = jedisPool.getResource();
             try{
                 jedis.sadd(String.format("_group_:%s",topic ), String.format("%s:%s",topic,group ));
+            }catch (Exception e){
+                log.error("Reg group {} fail! \n {}", group , e );
             }finally {
                 if(jedis != null ){
                     jedis.close();
@@ -197,6 +199,8 @@ public class RedisMessageQueue implements Runnable {
                     byte[] data = null ;
                     try{
                         data = jedis.lpop(String.format("%s:%s",topic,group ).getBytes());
+                    }catch (Exception e){
+                        log.warn("Pull message fail!\n" , e);
                     }finally {
                         if(jedis != null ){
                             jedis.close();
@@ -204,19 +208,19 @@ public class RedisMessageQueue implements Runnable {
                     }
 
                     if(data == null ){
-                        break;
+                        synchronized (this){
+                            try {
+                                this.wait(20000);
+                            } catch (InterruptedException e) {
+                                Thread.currentThread().interrupt();
+                            }
+                        }
                     }else{
                         executeHandler(data);
                     }
                 }
 
-                synchronized (this){
-                    try {
-                        this.wait(20000);
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                    }
-                }
+
             }
         }
 
@@ -239,8 +243,4 @@ public class RedisMessageQueue implements Runnable {
             stopped = true ;
         }
     }
-
-
-
-
 }

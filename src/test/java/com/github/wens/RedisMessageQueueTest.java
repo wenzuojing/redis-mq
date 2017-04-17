@@ -3,6 +3,7 @@ package com.github.wens;
 import com.github.wens.mq.MessageHandler;
 import com.github.wens.mq.RedisMessageQueue;
 import junit.framework.Assert;
+import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
 import org.junit.Test;
 import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisPool;
@@ -114,6 +115,20 @@ public class RedisMessageQueueTest {
         RedisMessageQueue redisMessageQueue = new RedisMessageQueue(jedisPool);
         redisMessageQueue.start();
         redisMessageQueue.consume("test1" ,"group2", new MessageHandler() {
+            public void onMessage(byte[] message) {
+                System.out.println(new String( message) );
+            }
+        });
+
+        Thread.sleep(Long.MAX_VALUE);
+    }
+
+    @Test
+    public void test_consume4() throws InterruptedException {
+        JedisPool jedisPool = new JedisPool( new GenericObjectPoolConfig() , "118.89.27.94" ,12430 ,55 ,"8#tgU9UTmg" ) ;
+        RedisMessageQueue redisMessageQueue = new RedisMessageQueue(jedisPool);
+        redisMessageQueue.start();
+        redisMessageQueue.consume("course_info" ,"group1", new MessageHandler() {
             public void onMessage(byte[] message) {
                 System.out.println(new String( message) );
             }
