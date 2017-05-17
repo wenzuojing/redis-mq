@@ -79,7 +79,7 @@ public class RedisMessageQueue implements Runnable {
         PullMessageWorker pullMessageWorker = groupPullMessageWorkerMap.get(group);
         if(pullMessageWorker == null ){
             pullMessageWorker = new PullMessageWorker(topic , group );
-            PullMessageWorker oldPullMessageWorker = groupPullMessageWorkerMap.putIfAbsent(topic, pullMessageWorker );
+            PullMessageWorker oldPullMessageWorker = groupPullMessageWorkerMap.putIfAbsent(group, pullMessageWorker );
             if(oldPullMessageWorker != null ){
                 pullMessageWorker = oldPullMessageWorker ;
             }else{
@@ -193,34 +193,35 @@ public class RedisMessageQueue implements Runnable {
             while(!stopped){
 
                 while(true){
-
-                    Jedis jedis = jedisPool.getResource();
-
-                    byte[] data = null ;
                     try{
-                        data = jedis.lpop(String.format("%s:%s",topic,group ).getBytes());
-                    }catch (Exception e){
-                        log.warn("Pull message fail!\n" , e);
-                    }finally {
-                        if(jedis != null ){
-                            jedis.close();
-                        }
-                    }
+                        Jedis jedis = jedisPool.getResource();
 
-                    if(data == null ){
-                        synchronized (this){
-                            try {
-                                this.wait(20000);
-                            } catch (InterruptedException e) {
-                                Thread.currentThread().interrupt();
+                        byte[] data = null ;
+                        try{
+                            data = jedis.lpop(String.format("%s:%s",topic,group ).getBytes());
+                        }catch (Exception e){
+                            log.warn("Pull message fail!\n" , e);
+                        }finally {
+                            if(jedis != null ){
+                                jedis.close();
                             }
                         }
-                    }else{
-                        executeHandler(data);
+
+                        if(data == null ){
+                            synchronized (this){
+                                try {
+                                    this.wait(20000);
+                                } catch (InterruptedException e) {
+                                    Thread.currentThread().interrupt();
+                                }
+                            }
+                        }else{
+                            executeHandler(data);
+                        }
+                    }catch (Exception e){
+                        log.error("Pull task fail!",e );
                     }
                 }
-
-
             }
         }
 
