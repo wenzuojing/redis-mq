@@ -18,8 +18,6 @@ public class RedisMessageQueue implements Runnable {
 
     private static Logger log = LoggerFactory.getLogger(RedisMessageQueue.class) ;
 
-    private static String TOPIC_PREFIX = "TOPIC_%s" ;
-
     private volatile boolean isStart = false ;
 
     private JedisPool jedisPool ;
@@ -208,18 +206,17 @@ public class RedisMessageQueue implements Runnable {
                         }
 
                         if(data == null ){
-                            synchronized (this){
-                                try {
-                                    this.wait(20000);
-                                } catch (InterruptedException e) {
-                                    Thread.currentThread().interrupt();
-                                }
-                            }
+                            Thread.sleep(500);
                         }else{
                             executeHandler(data);
                         }
                     }catch (Exception e){
                         log.error("Pull task fail!",e );
+                        try {
+                            Thread.sleep(1000);
+                        } catch (InterruptedException e1) {
+                            Thread.currentThread().interrupt();
+                        }
                     }
                 }
             }
