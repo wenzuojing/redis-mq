@@ -166,18 +166,37 @@ public class RedisMessageQueue implements Runnable {
             this.topic = topic ;
             this.group = group ;
             handlers = new CopyOnWriteArrayList<MessageHandler>();
-            regGroup();
         }
 
         private void regGroup() {
-            Jedis jedis = jedisPool.getResource();
-            try{
-                jedis.sadd(String.format("_group_:%s",topic ), String.format("%s:%s",topic,group ));
-            }catch (Exception e){
-                log.error("Reg group {} fail! \n {}", group , e );
-            }finally {
-                if(jedis != null ){
-                    jedis.close();
+
+            while (!stopped){
+
+                try{
+                    Jedis jedis = jedisPool.getResource();
+                    try{
+                        jedis.sadd(String.format("_group_:%s",topic ), String.format("%s:%s",topic,group ));
+                        break;
+                    }catch (Exception e){
+                        log.error("Reg group {} fail! \n {}", group , e );
+                        try {
+                            Thread.sleep(1000);
+                        } catch (InterruptedException e1) {
+                            Thread.currentThread().interrupt();
+                        }
+                    }finally {
+                        if(jedis != null ){
+                            jedis.close();
+                        }
+                    }
+
+                }catch (Exception e){
+                    log.error("Reg group fail!",e );
+                    try {
+                        Thread.sleep(1000);
+                    } catch (InterruptedException e1) {
+                        Thread.currentThread().interrupt();
+                    }
                 }
             }
         }
@@ -188,37 +207,40 @@ public class RedisMessageQueue implements Runnable {
 
         public void run() {
 
+            regGroup();
+
+
             while(!stopped){
 
-                while(true){
+                try{
+                    Jedis jedis = jedisPool.getResource();
+
+                    byte[] data = null ;
                     try{
-                        Jedis jedis = jedisPool.getResource();
-
-                        byte[] data = null ;
-                        try{
-                            data = jedis.lpop(String.format("%s:%s",topic,group ).getBytes());
-                        }catch (Exception e){
-                            log.warn("Pull message fail!\n" , e);
-                        }finally {
-                            if(jedis != null ){
-                                jedis.close();
-                            }
-                        }
-
-                        if(data == null ){
-                            Thread.sleep(500);
-                        }else{
-                            executeHandler(data);
-                        }
+                        data = jedis.lpop(String.format("%s:%s",topic,group ).getBytes());
                     }catch (Exception e){
-                        log.error("Pull task fail!",e );
-                        try {
-                            Thread.sleep(1000);
-                        } catch (InterruptedException e1) {
-                            Thread.currentThread().interrupt();
+                        log.warn("Pull message fail!\n" , e);
+                    }finally {
+                        if(jedis != null ){
+                            jedis.close();
                         }
                     }
+
+                    if(data == null ){
+                        Thread.sleep(500);
+                    }else{
+                        executeHandler(data);
+                    }
+                }catch (Exception e){
+                    log.error("Pull task fail!",e );
+                    try {
+                        Thread.sleep(1000);
+                    } catch (InterruptedException e1) {
+                        Thread.currentThread().interrupt();
+                    }
                 }
+
+
             }
         }
 
