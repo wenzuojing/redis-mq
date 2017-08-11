@@ -9,6 +9,7 @@ import redis.clients.jedis.Pipeline;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.*;
 
 /**
@@ -24,10 +25,48 @@ public class RedisMessageQueue implements Runnable {
 
     private ConcurrentHashMap<String,ConcurrentHashMap<String,PullMessageWorker>> pullMessageWorkers = new ConcurrentHashMap<String,ConcurrentHashMap<String,PullMessageWorker>>() ;
 
+    private ScheduledExecutorService scheduledExecutorService = Executors.newSingleThreadScheduledExecutor();
 
 
     public RedisMessageQueue(JedisPool jedisPool) {
         this.jedisPool = jedisPool;
+        scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
+            public void run() {
+                checkQueue();
+            }
+        },1,1 ,TimeUnit.DAYS );
+    }
+
+    public void checkQueue(){
+        Jedis jedis = jedisPool.getResource();
+
+        try{
+            Set<String> keys = jedis.keys("_group_:*");
+            for(String gKey : keys ){
+                Set<String> qKeys = jedis.smembers(gKey);
+                for(String qKey : qKeys ){
+                    String lastAccess = jedis.hget("_last_access_", qKey);
+                    if(lastAccess != null ){
+                        long la  = Long.parseLong(lastAccess);
+                        if(System.currentTimeMillis() - la >    7 * 24 * 60 * 60 * 1000  ){
+                            jedis.srem(gKey,qKey);
+                            jedis.del(qKey);
+                        }
+                    }
+                }
+
+            }
+
+        }catch (Exception e){
+            e.printStackTrace();
+            log.error("Invoke checkQueue() fail", e );
+        }finally {
+            if(jedis != null ){
+                jedis.close();
+            }
+        }
+
+
     }
 
     public <T> void publish(String topic , byte[] data){
@@ -209,15 +248,18 @@ public class RedisMessageQueue implements Runnable {
 
             regGroup();
 
+            String qKey = String.format("%s:%s", topic, group);
+            byte[] qKeyByte = qKey.getBytes();
 
             while(!stopped){
 
+
                 try{
                     Jedis jedis = jedisPool.getResource();
-
+                    jedis.hset("_last_access_",qKey,String.valueOf(System.currentTimeMillis()));
                     byte[] data = null ;
                     try{
-                        data = jedis.lpop(String.format("%s:%s",topic,group ).getBytes());
+                        data = jedis.lpop(qKeyByte);
                     }catch (Exception e){
                         log.warn("Pull message fail!\n" , e);
                     }finally {
@@ -229,6 +271,7 @@ public class RedisMessageQueue implements Runnable {
                     if(data == null ){
                         Thread.sleep(500);
                     }else{
+
                         executeHandler(data);
                     }
                 }catch (Exception e){
