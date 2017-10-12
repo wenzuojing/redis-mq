@@ -2,10 +2,7 @@ package com.github.wens.mq;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import redis.clients.jedis.Jedis;
-import redis.clients.jedis.JedisPool;
-import redis.clients.jedis.JedisPubSub;
-import redis.clients.jedis.Pipeline;
+import redis.clients.jedis.*;
 
 import java.util.Arrays;
 import java.util.List;
@@ -108,6 +105,44 @@ public class RedisMessageQueue implements Runnable {
             regPullMessageWorker(topic, group, messageHandler, groupPullMessageWorkerMap);
         }else{
             regPullMessageWorker(topic, group, messageHandler, groupPullMessageWorkerMap);
+        }
+
+    }
+
+    public void broadcast(String topic ,byte[] data ){
+        Jedis jedis = jedisPool.getResource();
+        try{
+            jedis.publish(String.format("_broadcast_:%s", topic ).getBytes() , data );
+        }finally {
+            if(jedis != null ){
+                jedis.close();
+            }
+        }
+    }
+
+    public void subscribe(String topic ,final MessageHandler messageHandler ){
+        try{
+            Jedis jedis = jedisPool.getResource();
+            try{
+                jedis.subscribe(new BinaryJedisPubSub() {
+                    @Override
+                    public void onMessage(byte[] channel, byte[] message) {
+                        super.onMessage(channel, message);
+                        messageHandler.onMessage(message);
+                    }
+                } ,String.format("_broadcast_:%s", topic ).getBytes() );
+            }finally {
+                if(jedis != null ){
+                    jedis.close();
+                }
+            }
+        }catch (Exception e ){
+            log.error("Redis subscribe error : \n {}" , e );
+            try {
+                Thread.sleep(200);
+            } catch (InterruptedException e1) {
+                //
+            }
         }
 
     }
