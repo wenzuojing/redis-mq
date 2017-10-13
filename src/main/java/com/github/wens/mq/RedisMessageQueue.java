@@ -120,30 +120,38 @@ public class RedisMessageQueue implements Runnable {
         }
     }
 
-    public void subscribe(String topic ,final MessageHandler messageHandler ){
-        try{
-            Jedis jedis = jedisPool.getResource();
-            try{
-                jedis.subscribe(new BinaryJedisPubSub() {
-                    @Override
-                    public void onMessage(byte[] channel, byte[] message) {
-                        super.onMessage(channel, message);
-                        messageHandler.onMessage(message);
+    public void subscribe(final String topic ,final MessageHandler messageHandler ){
+        new Thread( new Runnable() {
+            public void run() {
+                while (true){
+                    try{
+                        Jedis jedis = jedisPool.getResource();
+                        try{
+                            jedis.subscribe(new BinaryJedisPubSub() {
+                                @Override
+                                public void onMessage(byte[] channel, byte[] message) {
+                                    super.onMessage(channel, message);
+                                    messageHandler.onMessage(message);
+                                }
+                            } ,String.format("_broadcast_:%s", topic ).getBytes() );
+                        }finally {
+                            if(jedis != null ){
+                                jedis.close();
+                            }
+                        }
+                    }catch (Exception e ){
+                        log.error("Redis subscribe error : \n {}" , e );
+                        try {
+                            Thread.sleep(200);
+                        } catch (InterruptedException e1) {
+                            //
+                        }
                     }
-                } ,String.format("_broadcast_:%s", topic ).getBytes() );
-            }finally {
-                if(jedis != null ){
-                    jedis.close();
                 }
+
             }
-        }catch (Exception e ){
-            log.error("Redis subscribe error : \n {}" , e );
-            try {
-                Thread.sleep(200);
-            } catch (InterruptedException e1) {
-                //
-            }
-        }
+        },"mq-subscribe-thread").start();
+
 
     }
 
